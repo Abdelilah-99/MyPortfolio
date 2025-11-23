@@ -235,10 +235,17 @@
         animation-delay: 0s;
 
         @include respond(tab-port) {
-          top: 0;
-          right: 0;
-          max-width: 150px;
+          top: -10px;
+          right: -10px;
+          max-width: 140px;
           padding: 1rem;
+        }
+
+        @include respond(phone) {
+          top: -5px;
+          right: -5px;
+          max-width: 110px;
+          padding: 0.8rem;
         }
       }
 
@@ -249,9 +256,16 @@
 
         @include respond(tab-port) {
           bottom: 15%;
-          left: 0;
-          max-width: 150px;
+          left: -10px;
+          max-width: 140px;
           padding: 1rem;
+        }
+
+        @include respond(phone) {
+          bottom: 10%;
+          left: -5px;
+          max-width: 110px;
+          padding: 0.8rem;
         }
       }
 
@@ -262,15 +276,34 @@
         max-width: 150px;
 
         @include respond(tab-port) {
-          bottom: 0;
-          right: 0;
-          max-width: 150px;
+          bottom: -10px;
+          right: -10px;
+          max-width: 140px;
           padding: 1rem;
+        }
+
+        @include respond(phone) {
+          bottom: -5px;
+          right: -5px;
+          max-width: 110px;
+          padding: 0.8rem;
         }
       }
 
       @include respond(phone) {
-        display: none;
+        h4 {
+          font-size: 1.1rem;
+          margin-bottom: 0.2rem;
+        }
+
+        p {
+          font-size: 0.95rem;
+        }
+
+        .card-icon {
+          font-size: 1.8rem;
+          margin-bottom: 0.4rem;
+        }
       }
     }
 
@@ -292,6 +325,13 @@
         left: 5%;
         border-color: $primary-color;
         animation-delay: 0.5s;
+
+        @include respond(phone) {
+          width: 25px;
+          height: 25px;
+          top: 8%;
+          left: 3%;
+        }
       }
 
       &.circle-2 {
@@ -301,6 +341,13 @@
         right: 5%;
         border-color: #4a90e2;
         animation-delay: 1.5s;
+
+        @include respond(phone) {
+          width: 20px;
+          height: 20px;
+          top: 12%;
+          right: 3%;
+        }
       }
 
       &.circle-3 {
@@ -310,6 +357,10 @@
         left: 5%;
         border-color: #50c878;
         animation-delay: 2.5s;
+
+        @include respond(phone) {
+          display: none;
+        }
       }
 
       &.circle-4 {
@@ -319,10 +370,10 @@
         right: 5%;
         border-color: rgba(255, 107, 53, 0.5);
         animation-delay: 3s;
-      }
 
-      @include respond(phone) {
-        display: none;
+        @include respond(phone) {
+          display: none;
+        }
       }
     }
   }
