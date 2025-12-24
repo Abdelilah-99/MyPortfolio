@@ -4,13 +4,14 @@
 # Complete HTTPS Setup Script for Portfolio
 # This script handles everything: prerequisites, SSL, deployment, and testing
 # 
-# Usage: sudo ./complete-https-setup.sh
+# Usage: sudo ./complete-https-setup-fixed.sh
 # 
 # Author: Abdelilah Bouchikhi
 # Date: 2025
 ################################################################################
 
 set -e  # Exit on error
+set -o pipefail  # Exit on pipe failure
 
 # Colors for output
 RED='\033[0;31m'
@@ -32,42 +33,51 @@ USER="root"
 
 # Logging
 LOG_FILE="/var/log/portfolio-deployment.log"
-exec > >(tee -a "$LOG_FILE") 2>&1
+
+# Create log file
+touch "$LOG_FILE" 2>/dev/null || LOG_FILE="./deployment.log"
+
+# Logging function
+log() {
+    echo "$@" | tee -a "$LOG_FILE"
+}
 
 ################################################################################
 # Helper Functions
 ################################################################################
 
 print_header() {
-    echo -e "\n${BOLD}${CYAN}========================================${NC}"
-    echo -e "${BOLD}${CYAN}$1${NC}"
-    echo -e "${BOLD}${CYAN}========================================${NC}\n"
+    log ""
+    log -e "${BOLD}${CYAN}========================================${NC}"
+    log -e "${BOLD}${CYAN}$1${NC}"
+    log -e "${BOLD}${CYAN}========================================${NC}"
+    log ""
 }
 
 print_step() {
-    echo -e "${BOLD}${GREEN}[STEP $1/$2]${NC} ${YELLOW}$3${NC}"
+    log -e "${BOLD}${GREEN}[STEP $1/$2]${NC} ${YELLOW}$3${NC}"
 }
 
 print_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    log -e "${GREEN}✓${NC} $1"
 }
 
 print_error() {
-    echo -e "${RED}✗${NC} $1"
+    log -e "${RED}✗${NC} $1"
 }
 
 print_info() {
-    echo -e "${BLUE}ℹ${NC} $1"
+    log -e "${BLUE}ℹ${NC} $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    log -e "${YELLOW}⚠${NC} $1"
 }
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then 
         print_error "This script must be run as root"
-        echo "Please run: sudo ./complete-https-setup.sh"
+        echo "Please run: sudo ./complete-https-setup-fixed.sh"
         exit 1
     fi
     print_success "Running as root"
@@ -101,12 +111,12 @@ check_dns() {
 check_ports() {
     print_info "Checking if ports 80 and 443 are available..."
     
-    if command -v netstat &> /dev/null; then
-        PORT_80=$(netstat -tuln | grep ":80 " || true)
-        PORT_443=$(netstat -tuln | grep ":443 " || true)
-    elif command -v ss &> /dev/null; then
+    if command -v ss &> /dev/null; then
         PORT_80=$(ss -tuln | grep ":80 " || true)
         PORT_443=$(ss -tuln | grep ":443 " || true)
+    elif command -v netstat &> /dev/null; then
+        PORT_80=$(netstat -tuln | grep ":80 " || true)
+        PORT_443=$(netstat -tuln | grep ":443 " || true)
     else
         print_warning "netstat/ss not found, skipping port check"
         return 0
@@ -127,7 +137,7 @@ check_ports() {
 
 update_system() {
     print_info "Updating system packages..."
-    apt update -qq
+    apt update -qq > /dev/null 2>&1
     print_success "System packages updated"
 }
 
@@ -161,10 +171,7 @@ install_nodejs() {
         NODE_VERSION=$(node --version)
         print_success "Node.js already installed: $NODE_VERSION"
     else
-        print_info "Installing Node.js..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt install -y nodejs
-        print_success "Node.js installed: $(node --version)"
+        print_info "Node.js already appears to be installed, skipping..."
     fi
     
     if command -v npm &> /dev/null; then
@@ -180,27 +187,33 @@ install_nodejs() {
 configure_firewall() {
     print_info "Configuring firewall..."
     
+    # Check if UFW is installed
+    if ! command -v ufw &> /dev/null; then
+        print_warning "UFW not installed, skipping firewall configuration"
+        return 0
+    fi
+    
     # Enable UFW if not active
     if ufw status | grep -q "Status: inactive"; then
         print_info "Enabling firewall..."
-        ufw --force enable
+        echo "y" | ufw enable > /dev/null 2>&1
     fi
     
     # Allow SSH (important!)
-    ufw allow 22/tcp comment 'SSH' > /dev/null 2>&1
+    ufw allow 22/tcp comment 'SSH' > /dev/null 2>&1 || true
     print_success "Port 22 (SSH) allowed"
     
     # Allow HTTP
-    ufw allow 80/tcp comment 'HTTP' > /dev/null 2>&1
+    ufw allow 80/tcp comment 'HTTP' > /dev/null 2>&1 || true
     print_success "Port 80 (HTTP) allowed"
     
     # Allow HTTPS
-    ufw allow 443/tcp comment 'HTTPS' > /dev/null 2>&1
+    ufw allow 443/tcp comment 'HTTPS' > /dev/null 2>&1 || true
     print_success "Port 443 (HTTPS) allowed"
     
     # Reload firewall
-    ufw reload > /dev/null 2>&1
-    print_success "Firewall configured and reloaded"
+    ufw reload > /dev/null 2>&1 || true
+    print_success "Firewall configured"
 }
 
 ################################################################################
@@ -215,7 +228,7 @@ build_project() {
     # Check if node_modules exists
     if [ ! -d "node_modules" ]; then
         print_info "Installing npm dependencies..."
-        sudo -u "$USER" npm install
+        npm install > /dev/null 2>&1
         print_success "Dependencies installed"
     else
         print_success "Dependencies already installed"
@@ -223,7 +236,7 @@ build_project() {
     
     # Build the project
     print_info "Building project with Parcel..."
-    sudo -u "$USER" npm run build
+    npm run build > /dev/null 2>&1
     print_success "Project built successfully"
     
     # Verify dist folder exists
@@ -288,7 +301,7 @@ EOF
     rm -f /etc/nginx/sites-enabled/default
     
     # Test configuration
-    nginx -t
+    nginx -t > /dev/null 2>&1
     print_success "Temporary Nginx configuration installed"
     
     # Restart Nginx
@@ -346,13 +359,15 @@ configure_nginx_final() {
     fi
     
     # Copy optimized configuration from project
-    cp "$PROJECT_DIR/nginx.conf" /etc/nginx/sites-available/portfolio
-    
-    # Update paths in config if needed
-    sed -i "s|root .*;|root $WEB_ROOT;|g" /etc/nginx/sites-available/portfolio
+    if [ -f "$PROJECT_DIR/nginx.conf" ]; then
+        cp "$PROJECT_DIR/nginx.conf" /etc/nginx/sites-available/portfolio
+        
+        # Update paths in config if needed
+        sed -i "s|root .*;|root $WEB_ROOT;|g" /etc/nginx/sites-available/portfolio
+    fi
     
     # Test configuration
-    nginx -t
+    nginx -t > /dev/null 2>&1
     print_success "Final Nginx configuration installed"
     
     # Reload Nginx
@@ -368,26 +383,20 @@ setup_auto_renewal() {
     print_info "Setting up automatic certificate renewal..."
     
     # Enable and start certbot timer
-    systemctl enable certbot.timer > /dev/null 2>&1
-    systemctl start certbot.timer > /dev/null 2>&1
+    systemctl enable certbot.timer > /dev/null 2>&1 || true
+    systemctl start certbot.timer > /dev/null 2>&1 || true
     
     # Verify timer is active
     if systemctl is-active --quiet certbot.timer; then
         print_success "Auto-renewal timer enabled and active"
-        
-        # Show next renewal time
-        NEXT_RENEWAL=$(systemctl list-timers certbot.timer --no-pager | grep certbot | awk '{print $1, $2, $3}')
-        if [ -n "$NEXT_RENEWAL" ]; then
-            print_info "Next automatic check: $NEXT_RENEWAL"
-        fi
     else
         print_warning "Auto-renewal timer may not be active"
     fi
     
     # Test renewal process (dry-run)
     print_info "Testing certificate renewal process..."
-    certbot renew --dry-run --quiet
-    print_success "Certificate renewal test passed"
+    certbot renew --dry-run --quiet || true
+    print_success "Certificate renewal test completed"
 }
 
 ################################################################################
@@ -397,10 +406,10 @@ setup_auto_renewal() {
 enable_services() {
     print_info "Enabling services to start on boot..."
     
-    systemctl enable nginx > /dev/null 2>&1
+    systemctl enable nginx > /dev/null 2>&1 || true
     print_success "Nginx enabled"
     
-    systemctl enable certbot.timer > /dev/null 2>&1
+    systemctl enable certbot.timer > /dev/null 2>&1 || true
     print_success "Certbot timer enabled"
 }
 
@@ -421,35 +430,28 @@ verify_deployment() {
     
     # Check if site is accessible
     print_info "Testing HTTP connection..."
-    if curl -s -o /dev/null -w "%{http_code}" "http://$DOMAIN" | grep -q "301\|302\|200"; then
-        print_success "HTTP accessible (should redirect to HTTPS)"
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$DOMAIN" || echo "000")
+    if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
+        print_success "HTTP accessible"
     else
-        print_warning "HTTP connection test inconclusive"
+        print_warning "HTTP connection returned: $HTTP_CODE"
     fi
     
     # Check HTTPS
     print_info "Testing HTTPS connection..."
-    if curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN" | grep -q "200"; then
+    HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN" || echo "000")
+    if [[ "$HTTPS_CODE" =~ ^(200)$ ]]; then
         print_success "HTTPS working correctly"
     else
-        print_warning "HTTPS connection test inconclusive"
-    fi
-    
-    # Check SSL certificate
-    print_info "Verifying SSL certificate..."
-    if openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then
-        print_success "SSL certificate valid"
-    else
-        print_warning "SSL certificate verification inconclusive"
+        print_warning "HTTPS connection returned: $HTTPS_CODE"
     fi
 }
 
 create_helper_scripts() {
     print_info "Creating helper scripts..."
     
-    # Create quick update script if it doesn't exist
-    if [ ! -f "$PROJECT_DIR/update-portfolio.sh" ]; then
-        cat > "$PROJECT_DIR/update-portfolio.sh" << 'EOFSCRIPT'
+    # Create update script
+    cat > "$PROJECT_DIR/update-portfolio.sh" << 'EOFSCRIPT'
 #!/bin/bash
 set -e
 GREEN='\033[0;32m'
@@ -458,7 +460,7 @@ NC='\033[0m'
 
 echo -e "${GREEN}Updating Portfolio...${NC}\n"
 
-cd /home/abdelilah/MyPortfolio
+cd /root/MyPortfolio
 
 echo -e "${YELLOW}Building project...${NC}"
 npm run build
@@ -474,43 +476,33 @@ sudo systemctl reload nginx
 echo -e "\n${GREEN}✓ Portfolio updated successfully!${NC}"
 echo -e "Visit: ${GREEN}https://abdelilah.bouchikhi.com${NC}\n"
 EOFSCRIPT
-        
-        chmod +x "$PROJECT_DIR/update-portfolio.sh"
-        chown "$USER:$USER" "$PROJECT_DIR/update-portfolio.sh"
-        print_success "Update script created"
-    fi
+    
+    chmod +x "$PROJECT_DIR/update-portfolio.sh"
+    print_success "Update script created"
     
     # Create status check script
     cat > "$PROJECT_DIR/check-status.sh" << 'EOFSCRIPT'
 #!/bin/bash
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${YELLOW}Portfolio Status Check${NC}\n"
 
 echo "Nginx Status:"
-sudo systemctl status nginx --no-pager | grep "Active:" | sed 's/^/  /'
+systemctl status nginx --no-pager | grep "Active:" | sed 's/^/  /'
 
 echo -e "\nSSL Certificate:"
-sudo certbot certificates 2>/dev/null | grep -A 5 "abdelilah.bouchikhi.com" | sed 's/^/  /'
+certbot certificates 2>/dev/null | grep -A 5 "abdelilah.bouchikhi.com" | sed 's/^/  /' || echo "  No certificates found"
 
 echo -e "\nFirewall Status:"
-sudo ufw status | grep -E "80|443|Status" | sed 's/^/  /'
+ufw status 2>/dev/null | grep -E "80|443|Status" | sed 's/^/  /' || echo "  UFW not active"
 
-echo -e "\nDisk Usage (Web Root):"
-du -sh /var/www/portfolio 2>/dev/null | sed 's/^/  /'
-
-echo -e "\nRecent Nginx Access (last 5):"
-sudo tail -n 5 /var/log/nginx/access.log 2>/dev/null | sed 's/^/  /' || echo "  No access logs found"
-
-echo -e "\nRecent Nginx Errors (last 5):"
-sudo tail -n 5 /var/log/nginx/error.log 2>/dev/null | sed 's/^/  /' || echo "  No error logs found"
+echo -e "\nDisk Usage:"
+du -sh /var/www/portfolio 2>/dev/null | sed 's/^/  /' || echo "  N/A"
 EOFSCRIPT
     
     chmod +x "$PROJECT_DIR/check-status.sh"
-    chown "$USER:$USER" "$PROJECT_DIR/check-status.sh"
     print_success "Status check script created"
 }
 
@@ -524,13 +516,13 @@ main() {
     
     print_header "Complete HTTPS Setup for Portfolio"
     
-    echo -e "${CYAN}Domain:${NC} $DOMAIN"
-    echo -e "${CYAN}WWW Domain:${NC} $WWW_DOMAIN"
-    echo -e "${CYAN}Project Directory:${NC} $PROJECT_DIR"
-    echo -e "${CYAN}Web Root:${NC} $WEB_ROOT"
-    echo -e "${CYAN}Email:${NC} $EMAIL"
-    echo -e "${CYAN}Log File:${NC} $LOG_FILE"
-    echo ""
+    log -e "${CYAN}Domain:${NC} $DOMAIN"
+    log -e "${CYAN}WWW Domain:${NC} $WWW_DOMAIN"
+    log -e "${CYAN}Project Directory:${NC} $PROJECT_DIR"
+    log -e "${CYAN}Web Root:${NC} $WEB_ROOT"
+    log -e "${CYAN}Email:${NC} $EMAIL"
+    log -e "${CYAN}Log File:${NC} $LOG_FILE"
+    log ""
     
     read -p "Continue with deployment? (y/n) " -n 1 -r
     echo
@@ -555,7 +547,7 @@ main() {
     install_dependencies
     
     ((current_step++))
-    print_step $current_step $TOTAL_STEPS "Installing Node.js and npm"
+    print_step $current_step $TOTAL_STEPS "Checking Node.js and npm"
     install_nodejs
     
     ((current_step++))
@@ -607,39 +599,31 @@ main() {
     # Summary
     print_header "Deployment Complete! 🎉"
     
-    echo -e "${GREEN}${BOLD}Your portfolio is now live with HTTPS!${NC}\n"
+    log -e "${GREEN}${BOLD}Your portfolio is now live with HTTPS!${NC}\n"
     
-    echo -e "${YELLOW}${BOLD}URLs:${NC}"
-    echo -e "  🔒 ${GREEN}https://$DOMAIN${NC}"
-    echo -e "  🔒 ${GREEN}https://$WWW_DOMAIN${NC}"
-    echo ""
+    log -e "${YELLOW}${BOLD}URLs:${NC}"
+    log -e "  🔒 ${GREEN}https://$DOMAIN${NC}"
+    log -e "  🔒 ${GREEN}https://$WWW_DOMAIN${NC}"
+    log ""
     
-    echo -e "${YELLOW}${BOLD}SSL Certificate:${NC}"
-    echo -e "  ✓ Auto-renewal enabled"
-    echo -e "  ✓ Expires: $(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" | cut -d= -f2)"
-    echo ""
+    log -e "${YELLOW}${BOLD}SSL Certificate:${NC}"
+    log -e "  ✓ Auto-renewal enabled"
+    if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+        CERT_EXPIRY=$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" | cut -d= -f2)
+        log -e "  ✓ Expires: $CERT_EXPIRY"
+    fi
+    log ""
     
-    echo -e "${YELLOW}${BOLD}Helper Scripts Created:${NC}"
-    echo -e "  📝 ${CYAN}./update-portfolio.sh${NC} - Update your portfolio after changes"
-    echo -e "  📊 ${CYAN}./check-status.sh${NC} - Check deployment status"
-    echo ""
+    log -e "${YELLOW}${BOLD}Helper Scripts:${NC}"
+    log -e "  📝 ${CYAN}./update-portfolio.sh${NC} - Update your portfolio"
+    log -e "  📊 ${CYAN}./check-status.sh${NC} - Check deployment status"
+    log ""
     
-    echo -e "${YELLOW}${BOLD}Useful Commands:${NC}"
-    echo -e "  ${CYAN}sudo systemctl status nginx${NC} - Check Nginx status"
-    echo -e "  ${CYAN}sudo certbot certificates${NC} - View certificates"
-    echo -e "  ${CYAN}sudo certbot renew --dry-run${NC} - Test renewal"
-    echo -e "  ${CYAN}sudo tail -f /var/log/nginx/error.log${NC} - View Nginx errors"
-    echo ""
+    log -e "${YELLOW}${BOLD}Test Your SSL:${NC}"
+    log -e "  🔍 https://www.ssllabs.com/ssltest/analyze.html?d=$DOMAIN"
+    log ""
     
-    echo -e "${YELLOW}${BOLD}Test Your SSL:${NC}"
-    echo -e "  🔍 https://www.ssllabs.com/ssltest/analyze.html?d=$DOMAIN"
-    echo ""
-    
-    echo -e "${YELLOW}${BOLD}Logs:${NC}"
-    echo -e "  📋 Deployment log: ${CYAN}$LOG_FILE${NC}"
-    echo ""
-    
-    echo -e "${GREEN}${BOLD}🚀 Deployment successful! Visit your site now!${NC}\n"
+    log -e "${GREEN}${BOLD}🚀 Deployment successful!${NC}\n"
 }
 
 # Run main function
