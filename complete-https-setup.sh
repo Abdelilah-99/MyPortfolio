@@ -25,10 +25,10 @@ BOLD='\033[1m'
 # Configuration Variables
 DOMAIN="abdelilah.bouchikhi.com"
 WWW_DOMAIN="www.abdelilah.bouchikhi.com"
-PROJECT_DIR="/home/abdelilah/MyPortfolio"
+PROJECT_DIR="/root/MyPortfolio"
 WEB_ROOT="/var/www/portfolio"
 EMAIL="bouchihkiabdelilah0@gmail.com"
-USER="abdelilah"
+USER="root"
 
 # Logging
 LOG_FILE="/var/log/portfolio-deployment.log"
